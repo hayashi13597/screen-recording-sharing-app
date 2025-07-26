@@ -4,7 +4,9 @@ import VideoCard from "@/components/VideoCard";
 import { dymmyCards } from "@/constants";
 import React from "react";
 
-const Page = () => {
+const Home = async ({ searchParams }: SearchParams) => {
+  const { query, filter, page } = await searchParams;
+
   return (
     <main className="wrapper page">
       <Header title="All videos" subHeader="Public Library" />
@@ -19,9 +21,14 @@ const Page = () => {
         ))}
       </section>
 
-      <Pagination currentPage={1} totalPages={10} />
+      <Pagination
+        currentPage={page ? parseInt(page as string, 10) : 1}
+        totalPages={20}
+        queryString={query}
+        filterString={filter}
+      />
     </main>
   );
 };
 
-export default Page;
+export default Home;

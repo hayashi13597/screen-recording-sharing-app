@@ -1,0 +1,6 @@
+{
+  "databaseURL": "https://Phuc-Lam-s-workspace-oueu36.ap-southeast-2.xata.sh/db/SnapCast",
+  "codegen": {
+    "output": "src/xata.ts"
+  }
+}
