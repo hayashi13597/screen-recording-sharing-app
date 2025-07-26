@@ -12,7 +12,7 @@ export const metadata: Metadata = {
   title: "SnapCast",
   description: "A Screen Sharing App",
   icons: {
-    icon: "/assets/icons/logo.svg",
+    icon: "/icons/logo.svg",
   },
 };
 
