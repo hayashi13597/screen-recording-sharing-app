@@ -1,21 +1,16 @@
 "use client";
 
 import { useState, FormEvent, ChangeEvent, useEffect } from "react";
-// import {
-//   getVideoUploadUrl,
-//   getThumbnailUploadUrl,
-//   saveVideoDetails,
-// } from "@/lib/actions/video";
-import { useRouter } from "next/navigation";
-import { MAX_THUMBNAIL_SIZE, MAX_VIDEO_SIZE } from "@/constants";
-import { useFileInput } from "@/hooks/useFileInput";
-import FormField from "@/components/FormFiled";
-import FileInput from "@/components/FileInput";
 import {
-  getThumbnailUploadUrl,
   getVideoUploadUrl,
+  getThumbnailUploadUrl,
   saveVideoDetails,
 } from "@/services/video.service";
+import { useRouter } from "next/navigation";
+import { useFileInput } from "@/hooks/useFileInput";
+import { MAX_THUMBNAIL_SIZE, MAX_VIDEO_SIZE } from "@/constants";
+import FormField from "@/components/FormFiled";
+import FileInput from "@/components/FileInput";
 
 const uploadFileToBunny = (
   file: File,
@@ -145,7 +140,7 @@ const UploadPage = () => {
         duration: videoDuration,
       });
 
-      router.push(`/video/${videoId}`);
+      router.push("/");
     } catch (error) {
       console.error("Error submitting form:", error);
     } finally {
