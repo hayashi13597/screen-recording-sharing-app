@@ -4,7 +4,7 @@ import { db } from "@/drizzle/db";
 import { videos, user } from "@/drizzle/schema";
 import { headers } from "next/headers";
 import { revalidatePath } from "next/cache";
-import { and, eq, or, sql } from "drizzle-orm";
+import { and, desc, eq, ilike, or, sql } from "drizzle-orm";
 import { auth } from "@/lib/auth";
 import {
   apiFetch,
@@ -256,6 +256,45 @@ const deleteVideo = withErrorHandling(
   }
 );
 
+const getAllVideosByUser = withErrorHandling(
+  async (
+    userIdParameter: string,
+    searchQuery: string = "",
+    sortFilter?: string
+  ) => {
+    const currentUserId = (
+      await auth.api.getSession({ headers: await headers() })
+    )?.user.id;
+    const isOwner = userIdParameter === currentUserId;
+
+    const [userInfo] = await db
+      .select({
+        id: user.id,
+        name: user.name,
+        image: user.image,
+        email: user.email,
+      })
+      .from(user)
+      .where(eq(user.id, userIdParameter));
+    if (!userInfo) throw new Error("User not found");
+
+    /* eslint-disable @typescript-eslint/no-explicit-any */
+    const conditions = [
+      eq(videos.userId, userIdParameter),
+      !isOwner && eq(videos.visibility, "public"),
+      searchQuery.trim() && ilike(videos.title, `%${searchQuery}%`),
+    ].filter(Boolean) as any[];
+
+    const userVideos = await buildVideoWithUserQuery()
+      .where(and(...conditions))
+      .orderBy(
+        sortFilter ? getOrderByClause(sortFilter) : desc(videos.createdAt)
+      );
+
+    return { user: userInfo, videos: userVideos, count: userVideos.length };
+  }
+);
+
 export {
   getVideoUploadUrl,
   getThumbnailUploadUrl,
@@ -267,4 +306,5 @@ export {
   getTranscript,
   updateVideoVisibility,
   deleteVideo,
+  getAllVideosByUser,
 };
