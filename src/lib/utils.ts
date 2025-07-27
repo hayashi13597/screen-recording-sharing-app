@@ -1,3 +1,4 @@
+import { videos } from "@/drizzle/schema";
 import clsx from "clsx";
 import { ClassValue } from "clsx";
 import { ilike, sql } from "drizzle-orm";
@@ -111,6 +112,20 @@ export const apiFetch = async <T = Record<string, unknown>>(
   return await response.json();
 };
 
+export const getOrderByClause = (filter?: string) => {
+  switch (filter) {
+    case "Most Viewed":
+      return sql`${videos.views} DESC`;
+    case "Least Viewed":
+      return sql`${videos.views} ASC`;
+    case "Oldest First":
+      return sql`${videos.createdAt} ASC`;
+    case "Most Recent":
+    default:
+      return sql`${videos.createdAt} DESC`;
+  }
+};
+
 // Higher order function to handle errors
 export const withErrorHandling = <T, A extends unknown[]>(
   fn: (...args: A) => Promise<T>
@@ -133,3 +148,58 @@ export const doesTitleMatch = (videos: any, searchQuery: string) =>
     sql`REPLACE(REPLACE(REPLACE(LOWER(${videos.title}), '-', ''), '.', ''), ' ', '')`,
     `%${searchQuery.replace(/[-. ]/g, "").toLowerCase()}%`
   );
+
+export const createIframeLink = (videoId: string) =>
+  `https://iframe.mediadelivery.net/embed/473072/${videoId}?autoplay=true&preload=true`;
+
+export function daysAgo(inputDate: Date): string {
+  const input = new Date(inputDate);
+  const now = new Date();
+
+  const diffTime = now.getTime() - input.getTime();
+  const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24));
+
+  if (diffDays <= 0) {
+    return "Today";
+  } else if (diffDays === 1) {
+    return "1 day ago";
+  } else {
+    return `${diffDays} days ago`;
+  }
+}
+
+export function parseTranscript(transcript: string): TranscriptEntry[] {
+  const lines = transcript.replace(/^WEBVTT\s*/, "").split("\n");
+  const result: TranscriptEntry[] = [];
+  let tempText: string[] = [];
+  let startTime: string | null = null;
+
+  for (const line of lines) {
+    const trimmedLine = line.trim();
+    const timeMatch = trimmedLine.match(
+      /(\d{2}:\d{2}:\d{2})\.\d{3}\s-->\s(\d{2}:\d{2}:\d{2})\.\d{3}/
+    );
+
+    if (timeMatch) {
+      if (tempText.length > 0 && startTime) {
+        result.push({ time: startTime, text: tempText.join(" ") });
+        tempText = [];
+      }
+      startTime = timeMatch[1] ?? null;
+    } else if (trimmedLine) {
+      tempText.push(trimmedLine);
+    }
+
+    if (tempText.length >= 3 && startTime) {
+      result.push({ time: startTime, text: tempText.join(" ") });
+      tempText = [];
+      startTime = null;
+    }
+  }
+
+  if (tempText.length > 0 && startTime) {
+    result.push({ time: startTime, text: tempText.join(" ") });
+  }
+
+  return result;
+}

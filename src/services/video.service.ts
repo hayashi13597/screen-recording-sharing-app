@@ -1,14 +1,20 @@
 "use server";
 
-import { BUNNY } from "@/constants";
 import { db } from "@/drizzle/db";
-import { videos } from "@/drizzle/schema";
-import aj from "@/lib/arcjet";
-import { auth } from "@/lib/auth";
-import { apiFetch, getEnv, withErrorHandling } from "@/lib/utils";
-import { fixedWindow, request } from "@arcjet/next";
-import { revalidatePath } from "next/cache";
+import { videos, user } from "@/drizzle/schema";
 import { headers } from "next/headers";
+import { revalidatePath } from "next/cache";
+import { and, eq, or, sql } from "drizzle-orm";
+import { auth } from "@/lib/auth";
+import {
+  apiFetch,
+  doesTitleMatch,
+  getEnv,
+  getOrderByClause,
+  withErrorHandling,
+} from "@/lib/utils";
+import { BUNNY } from "@/constants";
+import aj, { fixedWindow, request } from "../lib/arcjet";
 
 // Constants with full names
 const VIDEO_STREAM_BASE_URL = BUNNY.STREAM_BASE_URL;
@@ -118,4 +124,147 @@ const saveVideoDetails = withErrorHandling(
   }
 );
 
-export { getVideoUploadUrl, getThumbnailUploadUrl, saveVideoDetails };
+const buildVideoWithUserQuery = () =>
+  db
+    .select({
+      video: videos,
+      user: { id: user.id, name: user.name, image: user.image },
+    })
+    .from(videos)
+    .leftJoin(user, eq(videos.userId, user.id));
+
+const getAllVideos = withErrorHandling(
+  async (
+    searchQuery: string = "",
+    sortFilter?: string,
+    pageNumber: number = 1,
+    pageSize: number = 8
+  ) => {
+    const session = await auth.api.getSession({
+      headers: await headers(),
+    });
+    const currentUserId = session?.user.id;
+
+    const canSeeTheVideos = or(
+      eq(videos.visibility, "public"),
+      eq(videos.userId, currentUserId!)
+    );
+
+    const whereCondition = searchQuery.trim()
+      ? and(canSeeTheVideos, doesTitleMatch(videos, searchQuery))
+      : canSeeTheVideos;
+
+    const [{ totalCount }] = await db
+      .select({
+        totalCount: sql<number>`count(*)`,
+      })
+      .from(videos)
+      .where(whereCondition);
+
+    const totalVideos = Number(totalCount || 0);
+
+    const totalPages = Math.ceil(totalVideos / pageSize);
+
+    const videoRecords = await buildVideoWithUserQuery()
+      .where(whereCondition)
+      .orderBy(
+        sortFilter
+          ? getOrderByClause(sortFilter)
+          : sql`${videos.createdAt} DESC`
+      )
+      .limit(pageSize)
+      .offset((pageNumber - 1) * pageSize);
+
+    return {
+      videos: videoRecords,
+      pagination: {
+        totalVideos,
+        totalPages,
+        currentPage: pageNumber,
+        pageSize,
+      },
+    };
+  }
+);
+
+const getVideoById = withErrorHandling(async (videoId: string) => {
+  const [videoRecord] = await buildVideoWithUserQuery().where(
+    eq(videos.videoId, videoId)
+  );
+  return videoRecord;
+});
+
+const incrementVideoViews = withErrorHandling(async (videoId: string) => {
+  await db
+    .update(videos)
+    .set({ views: sql`${videos.views} + 1`, updatedAt: new Date() })
+    .where(eq(videos.videoId, videoId));
+
+  revalidatePaths([`/video/${videoId}`]);
+  return {};
+});
+
+const getVideoProcessingStatus = withErrorHandling(async (videoId: string) => {
+  const processingInfo = await apiFetch<BunnyVideoResponse>(
+    `${VIDEO_STREAM_BASE_URL}/${BUNNY_LIBRARY_ID}/videos/${videoId}`,
+    { bunnyType: "stream" }
+  );
+
+  return {
+    isProcessed: processingInfo.status === 4,
+    encodingProgress: processingInfo.encodeProgress || 0,
+    status: processingInfo.status,
+  };
+});
+
+const getTranscript = withErrorHandling(async (videoId: string) => {
+  const response = await fetch(
+    `${BUNNY.TRANSCRIPT_URL}/${videoId}/captions/en-auto.vtt`
+  );
+  return response.text();
+});
+
+const updateVideoVisibility = withErrorHandling(
+  async (videoId: string, visibility: Visibility) => {
+    await validateWithArcjet(videoId);
+    await db
+      .update(videos)
+      .set({ visibility, updatedAt: new Date() })
+      .where(eq(videos.videoId, videoId));
+
+    revalidatePaths(["/", `/video/${videoId}`]);
+    return {};
+  }
+);
+
+const deleteVideo = withErrorHandling(
+  async (videoId: string, thumbnailUrl: string) => {
+    await apiFetch(
+      `${VIDEO_STREAM_BASE_URL}/${BUNNY_LIBRARY_ID}/videos/${videoId}`,
+      { method: "DELETE", bunnyType: "stream" }
+    );
+
+    const thumbnailPath = thumbnailUrl.split("thumbnails/")[1];
+    await apiFetch(
+      `${THUMBNAIL_STORAGE_BASE_URL}/thumbnails/${thumbnailPath}`,
+      { method: "DELETE", bunnyType: "storage", expectJson: false }
+    );
+
+    await db.delete(videos).where(eq(videos.videoId, videoId));
+    revalidatePaths(["/", `/video/${videoId}`]);
+    return {};
+  }
+);
+
+export {
+  getVideoUploadUrl,
+  getThumbnailUploadUrl,
+  saveVideoDetails,
+  getAllVideos,
+  getVideoById,
+  incrementVideoViews,
+  getVideoProcessingStatus,
+  getTranscript,
+  updateVideoVisibility,
+  deleteVideo,
+};
